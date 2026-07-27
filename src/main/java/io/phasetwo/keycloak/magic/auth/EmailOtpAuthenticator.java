@@ -1,7 +1,9 @@
 package io.phasetwo.keycloak.magic.auth;
 
 import static io.phasetwo.keycloak.magic.MagicLink.CREATE_NONEXISTENT_USER_CONFIG_PROPERTY;
+import static io.phasetwo.keycloak.magic.MagicLink.EMAIL_ATTRIBUTE_USER_CONFIG_PROPERTY;
 import static io.phasetwo.keycloak.magic.MagicLink.EMAIL_OTP;
+import static io.phasetwo.keycloak.magic.auth.util.Authenticators.get;
 import static io.phasetwo.keycloak.magic.auth.util.Authenticators.is;
 
 import com.google.common.collect.ImmutableList;
@@ -38,11 +40,33 @@ public class EmailOtpAuthenticator implements Authenticator {
   private void challenge(
       AuthenticationFlowContext context, FormMessage errorMessage, boolean triggerBruteForce) {
     var email = MagicLink.getAttemptedUsername(context);
-    sendOtp(context, email);
+    String customEmail = null;
+
+    UserModel user = context.getUser();
+    if (user != null) {
+      String emailAttr = getEmailAttribute(context, null);
+      if (emailAttr != null && !emailAttr.isEmpty()) {
+        customEmail = user.getFirstAttribute(emailAttr);
+        if (customEmail != null) {
+          customEmail = customEmail.trim();
+          if (customEmail.isEmpty()) {
+            customEmail = null;
+          }
+        }
+      }
+    }
+
+    sendOtp(context, email, customEmail);
 
     LoginFormsProvider form = context.form().setExecution(context.getExecution().getId());
     if (errorMessage != null) {
       form.setErrors(ImmutableList.of(errorMessage));
+    }
+
+    if (customEmail != null) {
+      form.setAttribute("email", customEmail);
+    } else {
+      form.setAttribute("email", email);
     }
 
     Response response = form.createForm("otp-form.ftl");
@@ -60,7 +84,7 @@ public class EmailOtpAuthenticator implements Authenticator {
     context.challenge(response);
   }
 
-  private void sendOtp(AuthenticationFlowContext context, String email) {
+  private void sendOtp(AuthenticationFlowContext context, String email, String customEmail) {
     if (context.getAuthenticationSession().getAuthNote(USER_AUTH_NOTE_OTP_CODE) != null) {
       log.debugf("Skipping sending OTP email to %s because auth note isn't empty", email);
       return;
@@ -71,14 +95,15 @@ public class EmailOtpAuthenticator implements Authenticator {
 
     UserModel user = context.getUser();
     if (user == null) {
-      user = MagicLink.getOrCreate(
-        context.getSession(),
-        context.getRealm(),
-        email,
-        isForceCreate(context, false),
-        false,
-        false,
-        MagicLink.registerEvent(event, EMAIL_OTP));
+      user =
+          MagicLink.getOrCreate(
+              context.getSession(),
+              context.getRealm(),
+              email,
+              isForceCreate(context, false),
+              false,
+              false,
+              MagicLink.registerEvent(event, EMAIL_OTP));
 
       if (user == null) {
         log.infof("User with email %s not found.", email);
@@ -88,7 +113,7 @@ public class EmailOtpAuthenticator implements Authenticator {
       context.setUser(user);
     }
 
-    boolean sent = MagicLink.sendOtpEmail(context.getSession(), user, code);
+    boolean sent = MagicLink.sendOtpEmail(context.getSession(), user, code, customEmail);
     if (sent) {
       log.debugf("Sent OTP code %s to email %s", code, context.getUser().getEmail());
       context.getAuthenticationSession().setAuthNote(USER_AUTH_NOTE_OTP_CODE, code);
@@ -158,5 +183,9 @@ public class EmailOtpAuthenticator implements Authenticator {
 
   private boolean isForceCreate(AuthenticationFlowContext context, boolean defaultValue) {
     return is(context, CREATE_NONEXISTENT_USER_CONFIG_PROPERTY, defaultValue);
+  }
+
+  private String getEmailAttribute(AuthenticationFlowContext context, String defaultValue) {
+    return get(context, EMAIL_ATTRIBUTE_USER_CONFIG_PROPERTY, defaultValue);
   }
 }

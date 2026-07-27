@@ -1,6 +1,7 @@
 package io.phasetwo.keycloak.magic.auth;
 
 import static io.phasetwo.keycloak.magic.MagicLink.CREATE_NONEXISTENT_USER_CONFIG_PROPERTY;
+import static io.phasetwo.keycloak.magic.MagicLink.EMAIL_ATTRIBUTE_USER_CONFIG_PROPERTY;
 
 import com.google.auto.service.AutoService;
 import java.util.List;
@@ -75,7 +76,13 @@ public class EmailOtpAuthenticatorFactory implements AuthenticatorFactory {
         "Creates a new user when an email is provided that does not match an existing user.");
     createUser.setDefaultValue(false);
 
-    return List.of(createUser);
+    ProviderConfigProperty emailAttr = new ProviderConfigProperty();
+    emailAttr.setType(ProviderConfigProperty.STRING_TYPE);
+    emailAttr.setName(EMAIL_ATTRIBUTE_USER_CONFIG_PROPERTY);
+    emailAttr.setLabel("User email address attribute");
+    emailAttr.setHelpText("Use value from user attribute as email address.");
+
+    return List.of(createUser, emailAttr);
   }
 
   @Override
